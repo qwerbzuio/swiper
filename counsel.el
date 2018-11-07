@@ -1672,6 +1672,31 @@ currently checked out."
 
 (add-to-list 'ivy-height-alist '(counsel-git-log . 4))
 
+(defvar counsel--files-sorted-by-date nil
+  "Sort files by recency.")
+
+(defun counsel-sort-files-by-date ()
+  "Sort entries by date in ascending order.
+If variable `counsel--files-sorted-by-date' is set beforehand,
+flip its state, and, on second call go back to default sorting
+method."
+  (interactive)
+  (let ((impl (lambda ()
+                (setq ivy--old-cands nil)
+                (setq ivy--old-re nil)
+                ;; (ivy-set-index 17)
+                (setq ivy--all-candidates 
+                      (ivy--sorted-files ivy--directory)))))
+    (if (bound-and-true-p counsel--files-sorted-by-date)
+        (funcall impl)
+      (letf (((alist-get 'read-file-name-internal ivy-sort-functions-alist)
+              'file-newer-than-file-p))
+        (funcall impl)))
+    (when (boundp counsel--files-sorted-by-date)
+      ;; flip state
+      (setq counsel--files-sorted-by-date
+            (not counsel--files-sorted-by-date)))))
+
 ;;* File
 ;;** `counsel-find-file'
 (defvar counsel-find-file-map
@@ -1679,6 +1704,7 @@ currently checked out."
     (define-key map (kbd "C-DEL") 'counsel-up-directory)
     (define-key map (kbd "C-<backspace>") 'counsel-up-directory)
     (define-key map (kbd "C-M-y") 'counsel-yank-directory)
+    (define-key map (kbd "M-s") 'counsel-sort-files-by-date)
     map))
 
 (defun counsel-yank-directory ()
@@ -1855,6 +1881,7 @@ The preselect behaviour can be customized via user options
   "Forward to `find-file'.
 When INITIAL-INPUT is non-nil, use it in the minibuffer during completion."
   (interactive)
+  (setq counsel--files-sorted-by-date nil)
   (ivy-read "Find file: " #'read-file-name-internal
             :matcher #'counsel--find-file-matcher
             :initial-input initial-input
