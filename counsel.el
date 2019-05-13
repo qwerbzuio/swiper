@@ -572,6 +572,11 @@ to `ivy-highlight-face'."
 (defvar counsel-set-variable-history nil
   "Store history for `counsel-set-variable'.")
 
+(defcustom counsel-set-variable-function #'setq
+  "Function to call to set a variable with `counsel-set-variable'."
+  :type 'function
+  :group 'ivy)
+
 (defun counsel-read-setq-expression (sym)
   "Read and eval a setq expression for SYM."
   (setq this-command 'eval-expression)
@@ -584,13 +589,18 @@ to `ivy-highlight-face'."
                      (add-hook 'completion-at-point-functions #'elisp-completion-at-point nil t)
                      (run-hooks 'eval-expression-minibuffer-setup-hook)
                      (goto-char (minibuffer-prompt-end))
-                     (forward-char 6)
+                     (forward-char (+
+                                    2 (string-width (format "%s"
+                                                            counsel-set-variable-function))))
                      (insert (format "%S " sym)))
                  (read-from-minibuffer "Eval: "
                                        (format
-                                        (if (and sym-value (consp sym-value))
-                                            "(setq '%S)"
-                                          "(setq %S)")
+                                        (if (and sym-value
+                                                 (not (eq sym-value t))
+                                                 (or (consp sym-value)
+                                                     (symbolp sym-value)))
+                                            (format "(%s '%%S)" counsel-set-variable-function)
+                                          (format "(%s %%S)" counsel-set-variable-function))
                                         sym-value)
                                        read-expression-map t
                                        'read-expression-history))))
@@ -613,6 +623,48 @@ X is an item of a radio- or choice-type defcustom."
 (declare-function lv-delete-window "ext:lv")
 (declare-function custom-variable-documentation "cus-edit")
 
+(defun counsel--set-variable-action (x)
+  (let* ((sym (intern x))
+         (doc (and (require 'cus-edit)
+                   (require 'lv nil t)
+                   (not (string= "nil" (custom-variable-documentation sym)))
+                   (propertize (custom-variable-documentation sym)
+                               'face 'font-lock-comment-face)))
+         sym-type
+         cands)
+    (unwind-protect
+        (progn
+          (when doc
+            (lv-message doc))
+          (if (and (boundp sym)
+                   (setq sym-type (get sym 'custom-type))
+                   (cond
+                    ((and (consp sym-type)
+                          (memq (car sym-type) '(choice radio)))
+                     (setq cands (delq nil (mapcar #'counsel--setq-doconst (cdr sym-type)))))
+                    ((eq sym-type 'boolean)
+                     (setq cands '(("nil" . nil) ("t" . t))))
+                    (t nil)))
+              (let* ((sym-val (symbol-value sym))
+                     ;; Escape '%' chars if present
+                     (sym-val-str (replace-regexp-in-string "%" "%%" (format "%s" sym-val)))
+                     (res (ivy-read (format "Set (%S <%s>): " sym sym-val-str)
+                                    cands
+                                    :preselect (prin1-to-string sym-val))))
+                (when res
+                  (setq res
+                        (if (assoc res cands)
+                            (cdr (assoc res cands))
+                          (read res)))
+                  (set sym (if (and (listp res) (eq (car res) 'quote))
+                               (cadr res)
+                             res))))
+            (unless (boundp sym)
+              (set sym nil))
+            (counsel-read-setq-expression sym)))
+      (when doc
+        (lv-delete-window)))))
+
 ;;;###autoload
 (defun counsel-set-variable (sym)
   "Set a variable, with completion.
@@ -631,46 +683,8 @@ With a prefix arg, restrict list to variables defined using
                                                #'custom-variable-p
                                              #'counsel--variable-p)
                                 :history 'counsel-set-variable-history
-                                :preselect (ivy-thing-at-point)))))
-  (let ((doc (and (require 'cus-edit)
-                  (require 'lv nil t)
-                  (not (string= "nil" (custom-variable-documentation sym)))
-                  (propertize (custom-variable-documentation sym)
-                              'face 'font-lock-comment-face)))
-        sym-type
-        cands)
-    (unwind-protect
-         (progn
-           (when doc
-             (lv-message doc))
-           (if (and (boundp sym)
-                    (setq sym-type (get sym 'custom-type))
-                    (cond
-                      ((and (consp sym-type)
-                            (memq (car sym-type) '(choice radio)))
-                       (setq cands (delq nil (mapcar #'counsel--setq-doconst (cdr sym-type)))))
-                      ((eq sym-type 'boolean)
-                       (setq cands '(("nil" . nil) ("t" . t))))
-                      (t nil)))
-               (let* ((sym-val (symbol-value sym))
-                      ;; Escape '%' chars if present
-                      (sym-val-str (replace-regexp-in-string "%" "%%" (format "%s" sym-val)))
-                      (res (ivy-read (format "Set (%S <%s>): " sym sym-val-str)
-                                     cands
-                                     :preselect (prin1-to-string sym-val))))
-                 (when res
-                   (setq res
-                         (if (assoc res cands)
-                             (cdr (assoc res cands))
-                           (read res)))
-                   (set sym (if (and (listp res) (eq (car res) 'quote))
-                                (cadr res)
-                              res))))
-             (unless (boundp sym)
-               (set sym nil))
-             (counsel-read-setq-expression sym)))
-      (when doc
-        (lv-delete-window)))))
+                                :action 'counsel--set-variable-action
+                                :preselect (ivy-thing-at-point))))))
 
 ;;** `counsel-apropos'
 ;;;###autoload
