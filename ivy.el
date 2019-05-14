@@ -1604,7 +1604,8 @@ Each value is a function that should take a string and return a
 valid regex or a regex sequence (see below).
 
 Possible choices: `ivy--regex', `regexp-quote',
-`ivy--regex-plus', `ivy--regex-fuzzy', `ivy--regex-ignore-order'.
+`ivy--regex-plus', `ivy--regex-fuzzy', `ivy--regex-ignore-order',
+`ivy--regex-or-literal'.
 
 If a function returns a list, it should format like this:
 '((\"matching-regexp\" . t) (\"non-matching-regexp\") ...).
