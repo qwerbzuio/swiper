@@ -1741,10 +1741,14 @@ candidates is updated after each input by calling COLLECTION.
 CALLER is a symbol to uniquely identify the caller to `ivy-read'.
 It is used, along with COLLECTION, to determine which
 customizations apply to the current completion session."
-  (let ((extra-actions (delete-dups
-                        (append (plist-get ivy--actions-list t)
-                                (plist-get ivy--actions-list this-command)
-                                (plist-get ivy--actions-list caller)))))
+  (let ((extra-actions
+         (nreverse ;; restore original order
+          (seq-uniq
+           (nreverse ;; specific actions override general actions
+            (append (plist-get ivy--actions-list t)
+                    (plist-get ivy--actions-list this-command)
+                    (plist-get ivy--actions-list caller)))
+           (lambda (left right) (equal (car left) (car right)))))))
     (when extra-actions
       (setq action
             (cond ((functionp action)
@@ -1756,7 +1760,12 @@ customizations apply to the current completion session."
                      ("o" identity "default")
                      ,@extra-actions))
                   (t
-                   (delete-dups (append action extra-actions)))))))
+                   (append
+                    `(,(car action))
+                    (nreverse
+                     (seq-uniq
+                      (nreverse (append (cdr action) extra-actions))
+                      (lambda (left right) (equal (car left) (car right)))))))))))
   (unless caller
     (setq caller this-command))
   (let ((extra-sources (plist-get ivy--sources-list caller)))
